@@ -5,7 +5,7 @@ from __future__ import division
 import numpy as np
 from random import sample as generate_sample
 from random import randint
-import threading
+import multiprocessing
 
 import time
 
@@ -16,7 +16,7 @@ a, b = 1, 1000  # Range of integers
 n = 500         # Amount of members in sample
 
 
-def run_experiment(callback):
+def run_experiment(sums):
     population = []
 
     for j in range(N):
@@ -38,7 +38,7 @@ def run_experiment(callback):
     sigma2_minus_sigma2 = abs(population_sigma2 - sample_sigma2)
     sigma_minus_sigma = abs(population_sigma - sample_sigma)
 
-    callback({
+    arg = {
         'population': {
             'sigma2': population_sigma2,
             'sigma': population_sigma
@@ -55,11 +55,8 @@ def run_experiment(callback):
             'sigma2_minus_sigma2': sigma2_minus_sigma2,
             'sigma_minus_sigma': sigma_minus_sigma
         }
-    })
+    }
 
-
-def save_data(arg):
-    global data, sums
     sums['sigma2_minus_s2'] += arg['statistics']['sigma2_minus_s2']
     sums['sigma_minus_s'] += arg['statistics']['sigma_minus_s']
     sums['sigma2_minus_sigma2'] += arg['statistics']['sigma2_minus_sigma2']
@@ -72,29 +69,40 @@ def save_data(arg):
         print "         σ²-S² = %5.5f, σ²(pop)-σ²(samp)=%5.5f" % (arg['statistics']['sigma2_minus_s2'], arg['statistics']['sigma_minus_s'])
         print "-----"
 
-data = []
-sums = {
-    'sigma2_minus_s2': 0,
-    'sigma_minus_s': 0,
-    'sigma2_minus_sigma2': 0,
-    'sigma_minus_sigma': 0
-}
 
-for i in range(k):
-    # Generate a population
-    t = threading.Thread(target=run_experiment, args=(save_data, ))
-    t.start()
+if __name__ == '__main__':
+    cores = multiprocessing.cpu_count()
+    manager = multiprocessing.Manager()
+    sums = manager.dict()
+    sums['sigma2_minus_s2'] = 0
+    sums['sigma_minus_s'] = 0
+    sums['sigma2_minus_sigma2'] = 0
+    sums['sigma_minus_sigma'] = 0
 
-while threading.active_count() > 1:
-    time.sleep(3)
+    left = k
+    while left > 1:
+        diff = cores - len(multiprocessing.active_children()) -1
+        if diff > 0:
+            for i in range(diff):
+                p = multiprocessing.Process(target=run_experiment, args=(sums, ))
+                p.start()
 
-sums['sigma2_minus_s2'] /= k
-sums['sigma_minus_s'] /= k
-sums['sigma2_minus_sigma2'] /= k
-sums['sigma_minus_sigma'] /= k
+            left -= diff
+            print "%d tests left" % left
 
-print "Averages:"
-print "|σ²-σ²| = %5.5f" % sums['sigma2_minus_sigma2']
-print "|σ²-S²| = %5.5f" % sums['sigma2_minus_s2']
-print "|σ-σ| = %5.5f" % sums['sigma_minus_sigma']
-print "|σ-S| = %5.5f" % sums['sigma_minus_s']
+        time.sleep(0.25)
+
+    # Lets wait for processes that are still doing their thing
+    while len(multiprocessing.active_children()) > 1:
+        time.sleep(1)
+
+    sums['sigma2_minus_s2'] /= k
+    sums['sigma_minus_s'] /= k
+    sums['sigma2_minus_sigma2'] /= k
+    sums['sigma_minus_sigma'] /= k
+
+    print "Averages:"
+    print "|σ²-σ²| = %5.5f" % sums['sigma2_minus_sigma2']
+    print "|σ²-S²| = %5.5f" % sums['sigma2_minus_s2']
+    print "|σ-σ| = %5.5f" % sums['sigma_minus_sigma']
+    print "|σ-S| = %5.5f" % sums['sigma_minus_s']
